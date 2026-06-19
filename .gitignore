@@ -1,2 +1,3 @@
-/assets/logs
-/logs
+logs
+desktop.ini
+__pycache__
