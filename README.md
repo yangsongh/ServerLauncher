@@ -2,7 +2,7 @@
 
 > 一站式网络服务管理平台 —— 文件共享、代理服务、新闻下载、远程管理
 
-[![Python](https://img.shields.io/badge/Python-3.12+-blue?logo=python)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.1+-black?logo=flask)](https://flask.palletsprojects.com/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen)](https://github.com/your-repo)
@@ -57,7 +57,7 @@
 
 ### 前置条件
 
-- Python 3.12+
+- Python 3.8+
 - FFmpeg (用于新闻视频处理)
 - 推荐使用虚拟环境
 
@@ -65,8 +65,8 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-repo/onehub-server.git
-cd onehub-server
+git clone https://github.com/yangsongh/OneHub.git
+cd onehub
 
 # 2. 创建并激活虚拟环境 (推荐)
 python -m venv venv
@@ -80,9 +80,6 @@ pip install -r requirements.txt
 ### 基本使用
 
 ```bash
-# 进入工作目录 (确保配置文件在assets/下)
-cd assets
-
 # 启动所有服务
 python ../server_launcher.py
 ```
@@ -238,27 +235,6 @@ onehub-server/
 ## 🤝 贡献指南
 
 欢迎提交Issue和Pull Request！
-
-### 本地开发环境搭建
-
-```bash
-# 1. Fork项目并克隆到本地
-git clone https://github.com/your-username/onehub-server.git
-cd onehub-server
-
-# 2. 创建虚拟环境并安装开发依赖
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 3. 配置开发环境
-cd assets
-# 复制示例配置并按照需要修改
-cp config_server.jsonc config_server.dev.jsonc
-
-# 4. 以开发模式运行
-python ../server_launcher.py
-```
 
 ### 代码规范
 
