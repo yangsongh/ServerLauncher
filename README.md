@@ -270,7 +270,7 @@ onehub-server/
 
 如有问题或建议，请通过以下方式联系：
 
-- 提交 [GitHub Issue](https://github.com/your-repo/onehub-server/issues)
-- 邮件联系：[请补充作者邮箱]
+- 提交 [GitHub Issue](https://github.com/yangsongh/OneHub/issues)
+- 邮件联系：18675864731@163.com
 
 ---
