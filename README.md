@@ -81,7 +81,7 @@ pip install -r requirements.txt
 
 ```bash
 # 启动所有服务
-python ../server_launcher.py
+python server_launcher.py
 ```
 
 启动成功后，您将看到：
