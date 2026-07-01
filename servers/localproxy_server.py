@@ -1,8 +1,9 @@
-﻿from functools import wraps
-import os
+﻿import os
 import json5
-from flask import Blueprint, Response, request, jsonify, send_from_directory
+
+from functools import wraps
 from utils.utils_lib import LoggerManager
+from flask import Blueprint, Response, request, jsonify, send_from_directory
 
 WEB_FOLDER = 'localproxy'
 ICONS_FOLDER = os.path.join(WEB_FOLDER, 'icons')
@@ -11,8 +12,7 @@ NOTICE_BOARD_FOLDER = os.path.join(WEB_FOLDER, 'noticeboard')
 CONFIG_FILE = 'config_client.jsonc'
 CONFIG_OLD_FILE = 'config_client_old.jsonc'
 
-VERSION_CODE = 202606121
-
+VERSION_CODE = 0
 LOCALPROXY_USERNAME = 'user'
 LOCALPROXY_PASSWORD = '123456'
 

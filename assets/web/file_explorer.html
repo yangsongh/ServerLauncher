@@ -225,11 +225,6 @@
             transform: scale(0.99);
         }
 
-        .upload-icon {
-            font-size: 2.2rem;
-            margin-bottom: 8px;
-        }
-
         .upload-text {
             font-weight: 500;
             color: #334155;
@@ -252,9 +247,13 @@
             font-size: 0.85rem;
             font-weight: 500;
             z-index: 1000;
+            animation: fadeInUp 0.2s ease forwards;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            animation: fadeInUp 0.2s ease;
             pointer-events: none;
+        }
+
+        .toast-message.exit {
+            animation: fadeOutDown 0.2s ease forwards;
         }
 
         @keyframes fadeInUp {
@@ -266,6 +265,18 @@
             to {
                 opacity: 1;
                 transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeOutDown {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            to {
+                opacity: 0;
+                transform: translateY(20px);
             }
         }
 
@@ -299,87 +310,6 @@
                 font-size: 0.75rem;
                 padding: 2px 8px;
             }
-        }
-
-        /* 上传进度条样式 */
-        .upload-progress-container {
-            margin: 12px 20px 20px 20px;
-            background: #f0f2f5;
-            border-radius: 12px;
-            overflow: hidden;
-            display: none;
-        }
-
-        .upload-progress-bar {
-            background: linear-gradient(90deg, #3b82f6, #60a5fa);
-            width: 0%;
-            height: 6px;
-            border-radius: 12px;
-            transition: width 0.3s ease;
-        }
-
-        .upload-progress-info {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 12px;
-            background: #f8fafc;
-            border-radius: 12px;
-            margin-bottom: 4px;
-        }
-
-        .upload-progress-filename {
-            font-size: 0.85rem;
-            font-weight: 500;
-            color: #1e293b;
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .upload-progress-percent {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: #3b82f6;
-        }
-
-        .upload-progress-speed {
-            font-size: 0.75rem;
-            color: #6c7a91;
-            margin-left: 12px;
-        }
-
-        .upload-status-icon {
-            width: 20px;
-            height: 20px;
-            margin-right: 8px;
-        }
-
-        .uploading-icon {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #3b82f6;
-            border-top-color: transparent;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .success-icon {
-            color: #10b981;
-            font-size: 1rem;
-        }
-
-        .error-icon {
-            color: #ef4444;
-            font-size: 1rem;
         }
     </style>
 </head>
@@ -429,22 +359,330 @@
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
 
-        let currentPath = "";
-        let pendingFiles = [];           // 待上传文件队列
-        let currentUploadPromises = [];  // 存储当前批次的上传 Promise
+        // ========== 上传全局配置 & 状态管理 ==========
+        const UPLOAD_CONFIG = {
+            MAX_CONCURRENT: 3,        // 最大并发上传文件数
+            CHUNK_SIZE: 1024 * 1024 * 1024, // 1G分片
+            MAX_RETRY: 2,             // 分片失败重试次数
+            PROGRESS_AUTO_CLOSE_MS: 2500
+        };
+
+        // 上传队列状态枚举
+        const UploadStatus = {
+            PENDING: 'pending',    // 等待上传
+            UPLOADING: 'uploading',// 上传中
+            SUCCESS: 'success',    // 上传完成
+            FAILED: 'failed'       // 上传失败
+        };
+
+        let uploadTaskList = []; // 全部上传任务列表（包含待处理/上传中/成功/失败）
+        let runningTaskCount = 0; // 当前正在并发上传的文件数量
+
+        // 当前文件浏览器所在路径
+        let currentPath = '';
+        let news_page_pathname = '/news';
+        let news_page_msg = '新闻页面不允许切换路径'
+
+        // 提示窗队列
         let toastQueue = [];
+        // 是否正在显示提示窗
         let isShowingToast = false;
 
-        // 显示提示
+        // 全局批量上传统计
+        function calcGlobalUploadStat() {
+            const stat = {
+                totalFileCount: uploadTaskList.length,
+                finishedFileCount: 0,
+                failedFileCount: 0,
+                totalChunkCount: 0,
+                finishedChunkCount: 0,
+                totalBytes: 0,
+                finishedBytes: 0
+            };
+            uploadTaskList.forEach(task => {
+                stat.totalBytes += task.file.size;
+                stat.totalChunkCount += task.totalChunks;
+                stat.finishedBytes += task.finishedBytes;
+                stat.finishedChunkCount += task.finishedChunks;
+                if (task.status === UploadStatus.SUCCESS) stat.finishedFileCount++;
+                if (task.status === UploadStatus.FAILED) stat.failedFileCount++;
+            });
+            return stat;
+        }
+
+        // ========== 全局上传进度面板渲染 ==========
+        function renderGlobalUploadStat() {
+            const stat = calcGlobalUploadStat();
+            const globalPanelId = "global-upload-stat";
+            let globalPanel = document.getElementById(globalPanelId);
+
+            // 无上传任务且面板不存在时直接返回
+            if (stat.totalFileCount === 0 && !globalPanel) {
+                return;
+            }
+
+            // 面板不存在则创建
+            if (!globalPanel) {
+                globalPanel = document.createElement("div");
+                globalPanel.id = globalPanelId;
+                globalPanel.style.cssText = "margin:12px 20px; padding:14px 18px; background:#eff6ff; border-radius:16px; border:1px solid #bfdbfe;";
+                uploadZone.parentNode.insertBefore(globalPanel, uploadZone);
+            }
+
+            const filePercent = calcPercent(stat.finishedFileCount + stat.failedFileCount, stat.totalFileCount);
+            const chunkPercent = calcPercent(stat.finishedChunkCount, stat.totalChunkCount);
+            const bytePercent = calcPercent(stat.finishedBytes, stat.totalBytes);
+
+            // 优先渲染面板最新状态
+            globalPanel.innerHTML = `
+                <div style="font-weight:600; color:#1d4ed8; margin-bottom:8px;">批量上传总进度</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-size:0.85rem; color:#334155;">
+                    <div>文件：${stat.finishedFileCount + stat.failedFileCount}/${stat.totalFileCount} (${filePercent}%)</div>
+                    <div>分片：${stat.finishedChunkCount}/${stat.totalChunkCount} (${chunkPercent}%)</div>
+                    <div>大小：${formatMB(stat.finishedBytes)}/${formatMB(stat.totalBytes)} (${bytePercent}%)</div>
+                </div>
+                <div style="margin-top:10px; background:#dbeafe; border-radius:8px; height:6px; overflow:hidden;">
+                    <div style="width:${bytePercent}%; height:100%; background:#2563eb; transition:width 0.2s;"></div>
+                </div>
+                ${stat.failedFileCount > 0 ? `<div style="margin-top:6px; color:#dc2626; font-size:0.8rem;">有${stat.failedFileCount}个文件上传失败，可等待全部结束后重试</div>` : ''}
+            `;
+
+            // 全部完成后的后置处理
+            const allComplete = stat.finishedFileCount + stat.failedFileCount === stat.totalFileCount;
+            if (allComplete) {
+                uploadTaskList = uploadTaskList.filter(t => t.status !== UploadStatus.SUCCESS);
+                fetchDirectory();
+                showToast(`上传结束：成功${stat.finishedFileCount}个，失败${stat.failedFileCount}个`);
+
+                // 全部成功时延迟关闭全局面板，与单文件进度条保持一致
+                if (stat.failedFileCount === 0) {
+                    setTimeout(() => {
+                        const panel = document.getElementById(globalPanelId);
+                        if (panel) panel.remove();
+                    }, UPLOAD_CONFIG.PROGRESS_AUTO_CLOSE_MS);
+                }
+            }
+        }
+
+        // ========== 创建单文件上传进度DOM ==========
+        function createTaskProgressDom(task) {
+            const { file, id } = task;
+            const fileName = escapeHtml(file.name);
+            const wrapperDiv = document.createElement('div');
+            wrapperDiv.id = 'upload_' + id;
+            wrapperDiv.style.cssText = 'margin: 8px 20px 0 20px;';
+            const infoDiv = document.createElement('div');
+            infoDiv.style.cssText = 'display: flex; flex-direction:column; gap:4px; padding: 10px 14px; background: #f8fafc; border-radius: 12px; font-size: 0.85rem;';
+            infoDiv.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 ${fileName}</span>
+                    <span class="file-percent" style="width:70px; text-align:right; font-weight:600; color:#3b82f6;">0.00%</span>
+                    <button class="retry-btn" style="margin-left:8px; display:none; padding:2px 8px; border:none; border-radius:6px; background:#f59e0b; color:#fff; font-size:0.7rem; cursor:pointer;">重试</button>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:0.78rem; color:#64748b;">
+                    <span class="chunk-info">分片：0/${task.totalChunks}</span>
+                    <span class="size-info">0.00 MB/${formatMB(file.size)}</span>
+                </div>
+            `;
+            const barWrapper = document.createElement('div');
+            barWrapper.style.cssText = 'margin-top: 6px; background: #e2e8f0; border-radius: 10px; overflow: hidden;';
+            const barDiv = document.createElement('div');
+            barDiv.className = 'progress-bar-inner';
+            barDiv.style.cssText = 'width:0%; height:5px; background:#3b82f6; transition:width 0.15s;';
+            barWrapper.appendChild(barDiv);
+            wrapperDiv.appendChild(infoDiv);
+            wrapperDiv.appendChild(barWrapper);
+            // 绑定重试按钮事件
+            const retryBtn = infoDiv.querySelector('.retry-btn');
+            retryBtn.addEventListener('click', () => retryFailedTask(task));
+            // 缓存DOM节点到task对象
+            task.domWrapper = wrapperDiv;
+            task._dom = {
+                percentSpan: infoDiv.querySelector('.file-percent'),
+                chunkSpan: infoDiv.querySelector('.chunk-info'),
+                sizeSpan: infoDiv.querySelector('.size-info'),
+                barDiv,
+                retryBtn
+            };
+            uploadZone.parentNode.insertBefore(wrapperDiv, uploadZone);
+        }
+
+        // 更新单文件进度UI
+        function updateTaskProgressUI(task) {
+            const { file, finishedBytes, finishedChunks, totalChunks, _dom, status } = task;
+            if (!_dom) return;
+            const pct = calcPercent(finishedBytes, file.size);
+            _dom.barDiv.style.width = pct + "%";
+            _dom.percentSpan.textContent = pct + "%";
+            _dom.chunkSpan.textContent = `分片：${finishedChunks}/${totalChunks}`;
+            _dom.sizeSpan.textContent = `${formatMB(finishedBytes)}/${formatMB(file.size)}`;
+            // 根据状态切换样式与重试按钮
+            switch (status) {
+                case UploadStatus.SUCCESS:
+                    _dom.percentSpan.textContent = "100.00%";
+                    _dom.percentSpan.style.color = "#10b981";
+                    _dom.retryBtn.style.display = "none";
+                    setTimeout(() => task.domWrapper.remove(), UPLOAD_CONFIG.PROGRESS_AUTO_CLOSE_MS);
+                    break;
+                case UploadStatus.FAILED:
+                    _dom.percentSpan.textContent = "失败";
+                    _dom.percentSpan.style.color = "#ef4444";
+                    _dom.retryBtn.style.display = "inline-block";
+                    break;
+                default:
+                    _dom.percentSpan.style.color = "#3b82f6";
+                    _dom.retryBtn.style.display = "none";
+            }
+            renderGlobalUploadStat();
+        }
+
+        // ========== 单文件分片上传封装（支持重试） ==========
+        async function uploadSingleTask(task) {
+            const { file, fileId, totalChunks } = task;
+            task.status = UploadStatus.UPLOADING;
+            updateTaskProgressUI(task);
+            try {
+                // 循环上传所有分片
+                for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                    const start = chunkIdx * UPLOAD_CONFIG.CHUNK_SIZE;
+                    const end = Math.min(start + UPLOAD_CONFIG.CHUNK_SIZE, file.size);
+                    const blob = file.slice(start, end);
+                    let chunkSuccess = false;
+                    // 分片重试循环
+                    for (let r = 0; r <= UPLOAD_CONFIG.MAX_RETRY; r++) {
+                        try {
+                            await uploadSingleChunk(task, chunkIdx, blob, start);
+                            chunkSuccess = true;
+                            break;
+                        } catch (chunkErr) {
+                            if (r >= UPLOAD_CONFIG.MAX_RETRY) throw chunkErr;
+                            showToast(`${file.name} 分片${chunkIdx}上传失败，第${r + 1}次重试`, false);
+                        }
+                    }
+                    if (!chunkSuccess) throw new Error(`${file.name} 分片${chunkIdx}多次重试失败`);
+                }
+                // 合并分片
+                const mergeResp = await fetch(buildChunkMergeUrl(currentPath, file.name, totalChunks, fileId), { method: "POST" });
+                const mergeData = await mergeResp.json();
+                if (!mergeData.success) throw new Error(mergeData.message);
+                // 上传成功
+                task.status = UploadStatus.SUCCESS;
+                runningTaskCount--;
+                updateTaskProgressUI(task);
+                // 调度下一个等待任务
+                scheduleNextUploadTask();
+            } catch (err) {
+                task.status = UploadStatus.FAILED;
+                runningTaskCount--;
+                showToast(`${file.name} 上传失败: ${err.message}`, true);
+                updateTaskProgressUI(task);
+                // 调度下一个等待任务
+                scheduleNextUploadTask();
+            }
+        }
+
+        // 上传单个分片
+        function uploadSingleChunk(task, chunkIdx, blob, chunkStartByte) {
+            return new Promise((resolve, reject) => {
+                const { file, fileId } = task;
+                const url = buildChunkUploadUrl(currentPath, file.name, chunkIdx, task.totalChunks, fileId);
+                const formData = new FormData();
+                formData.append("chunk", blob);
+                const xhr = new XMLHttpRequest();
+                xhr.upload.onprogress = (e) => {
+                    if (!e.lengthComputable) return;
+                    const loaded = e.loaded;
+                    const total = e.total;
+                    const delta = Math.floor((loaded / total) * blob.size);
+                    task.finishedBytes = chunkStartByte + delta;
+                    updateTaskProgressUI(task);
+                };
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        task.finishedChunks++;
+                        task.finishedBytes = chunkStartByte + blob.size;
+                        updateTaskProgressUI(task);
+                        resolve();
+                    } else {
+                        reject(new Error(`HTTP${xhr.status}`));
+                    }
+                };
+                xhr.onerror = () => reject(new Error("网络异常"));
+                xhr.ontimeout = () => reject(new Error("分片上传超时"));
+                xhr.open("POST", url);
+                xhr.send(formData);
+            });
+        }
+
+        // ========== 队列调度：并发控制核心 ==========
+        function scheduleNextUploadTask() {
+            // 达到最大并发，停止调度
+            if (runningTaskCount >= UPLOAD_CONFIG.MAX_CONCURRENT) return;
+            // 取出第一个等待中的任务
+            const pendingTask = uploadTaskList.find(t => t.status === UploadStatus.PENDING);
+            if (!pendingTask) return;
+            runningTaskCount++;
+            uploadSingleTask(pendingTask);
+        }
+
+        // 将文件加入上传队列（入口）
+        function addFilesToQueue(files) {
+            if (!files.length) return;
+            for (const f of files) {
+                // 同名同大小 且 当前任务未完成（等待/上传中）才判定重复，SUCCESS 允许重复上传
+                const duplicate = uploadTaskList.some(t => {
+                    return t.file.name === f.name
+                        && t.file.size === f.size
+                        && (t.status === UploadStatus.PENDING || t.status === UploadStatus.UPLOADING);
+                });
+                if (duplicate) {
+                    showToast(`文件「${f.name}」已在队列中，无需重复添加`, false);
+                    continue;
+                }
+                // 构建上传任务对象
+                const taskId = Date.now() + "_" + Math.random().toString(36).slice(2, 10);
+                const totalChunks = Math.ceil(f.size / UPLOAD_CONFIG.CHUNK_SIZE);
+                const task = {
+                    id: taskId,
+                    file: f,
+                    fileId: taskId,
+                    status: UploadStatus.PENDING,
+                    finishedBytes: 0,
+                    finishedChunks: 0,
+                    totalChunks,
+                    retryCount: 0,
+                    domWrapper: null,
+                    _dom: null
+                };
+                uploadTaskList.push(task);
+                createTaskProgressDom(task);
+            }
+            renderGlobalUploadStat();
+            // 触发调度器
+            scheduleNextUploadTask();
+        }
+
+        // 重试单个失败任务
+        function retryFailedTask(task) {
+            task.status = UploadStatus.PENDING;
+            task.finishedBytes = 0;
+            task.finishedChunks = 0;
+            task.retryCount++;
+            renderGlobalUploadStat();
+            scheduleNextUploadTask();
+            showToast(`开始重试：${escapeHtml(task.file.name)}`);
+        }
+
+        // 显示提示窗
         function showToast(message, isError = false) {
             toastQueue.push({ message, isError });
             processToastQueue();
         }
 
+        // 处理提示窗队列
         function processToastQueue() {
             if (isShowingToast || toastQueue.length === 0) return;
             isShowingToast = true;
-
             const { message, isError } = toastQueue.shift();
             const toast = document.createElement('div');
             toast.className = 'toast-message';
@@ -452,10 +690,15 @@
             if (isError) toast.style.background = '#b91c1c';
             document.body.appendChild(toast);
 
+            // 等待停留时长后执行退场动画
             setTimeout(() => {
-                toast.remove();
-                isShowingToast = false;
-                processToastQueue(); // 显示下一条
+                toast.classList.add('exit');
+                // 等待退场动画执行完毕再删除DOM
+                setTimeout(() => {
+                    toast.remove();
+                    isShowingToast = false;
+                    processToastQueue(); // 显示下一条
+                }, 200);
             }, 2500);
         }
 
@@ -464,7 +707,18 @@
             if (!bytes) return '--';
             const sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(1024));
-            return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + sizes[i];
+            return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatMB(bytes) {
+            if (!bytes) return "0.00 MB";
+            const mb = bytes / 1024 / 1024;
+            return mb.toFixed(2) + " MB";
+        }
+
+        function calcPercent(current, total) {
+            if (total === 0) return "0.00";
+            return ((current / total) * 100).toFixed(2);
         }
 
         // 获取父路径
@@ -476,7 +730,15 @@
             return parts.join('/');
         }
 
-        // API URL 构建
+        // URL构建工具
+        function buildChunkUploadUrl(dirpath, filename, chunkIndex, totalChunks, fileId) {
+            const base = dirpath ? `/api/chunk/${encodeURIComponent(dirpath)}` : "/api/chunk";
+            return `${base}?filename=${encodeURIComponent(filename)}&chunk=${chunkIndex}&total=${totalChunks}&fileId=${encodeURIComponent(fileId)}`;
+        }
+        function buildChunkMergeUrl(dirpath, filename, totalChunks, fileId) {
+            const base = dirpath ? `/api/chunk_merge/${encodeURIComponent(dirpath)}` : "/api/chunk_merge";
+            return `${base}?filename=${encodeURIComponent(filename)}&total=${totalChunks}&fileId=${encodeURIComponent(fileId)}`;
+        }
         function buildListUrl() {
             return currentPath ? `/api/list/${encodeURIComponent(currentPath)}` : '/api/list';
         }
@@ -490,19 +752,25 @@
             return `/api/file/${encodeURIComponent(filename)}`;
         }
 
+        function escapeHtml(text) {
+            if (!text) return '';
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
         // 刷新目录列表
         async function fetchDirectory() {
             try {
                 fileListContainer.innerHTML = '<div class="loading-indicator">加载中...</div>';
                 const res = await fetch(buildListUrl());
                 const data = await res.json();
-                if (!data.success) throw new Error(data.error || '加载失败');
+                if (!data.success) throw new Error(data.message || '加载失败');
 
                 let items = data.items || [];
-                items.sort((a, b) => {
-                    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-                    return a.name.localeCompare(b.name);
-                });
+                // items.sort((a, b) => {
+                //     if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+                //     return a.name.localeCompare(b.name);
+                // });\
                 renderFileList(items);
                 renderBreadcrumb();
             } catch (err) {
@@ -520,12 +788,12 @@
             if (parentPath !== null) {
                 const parentRow = createRow({ name: '..', type: 'parent' });
                 parentRow.onclick = () => {
-                    if (window.location.pathname === '/news') {
-                        currentPath = currentPath;
+                    if (window.location.pathname === news_page_pathname) {
+                        showToast(news_page_msg);
                     } else {
                         currentPath = parentPath;
+                        fetchDirectory();
                     }
-                    fetchDirectory();
                 };
                 container.appendChild(parentRow);
             }
@@ -554,6 +822,7 @@
             fileListContainer.appendChild(container);
         }
 
+        // 创建一个文件行
         function createRow(item) {
             const row = document.createElement('div');
             row.className = 'list-row';
@@ -593,19 +862,19 @@
             return row;
         }
 
-        // 面包屑
+        // 渲染面包屑
         function renderBreadcrumb() {
             breadcrumbContainer.innerHTML = '<span class="current-location-label">当前位置：</span>';
             const root = document.createElement('span');
             root.className = 'breadcrumb-item';
             root.textContent = '根目录';
             root.onclick = () => {
-                if (window.location.pathname === '/news') {
-                    currentPath = currentPath;
+                if (window.location.pathname === news_page_pathname) {
+                    showToast(news_page_msg);
                 } else {
                     currentPath = '';
+                    fetchDirectory();
                 }
-                fetchDirectory();
             };
             breadcrumbContainer.appendChild(root);
 
@@ -624,12 +893,12 @@
                 crumb.textContent = seg;
                 const pathUntil = segments.slice(0, i + 1).join('/');
                 crumb.onclick = () => {
-                    if (window.location.pathname === '/news') {
-                        currentPath = currentPath;
+                    if (window.location.pathname === news_page_pathname) {
+                        showToast(news_page_msg);
                     } else {
                         currentPath = pathUntil;
+                        fetchDirectory();
                     }
-                    fetchDirectory();
                 };
                 breadcrumbContainer.appendChild(crumb);
             });
@@ -655,152 +924,137 @@
                     showToast(`创建成功`);
                     fetchDirectory();
                 } else {
-                    throw new Error(data.error);
+                    throw new Error(data.message);
                 }
             } catch (err) {
                 showToast(err.message, true);
             }
         }
 
-        // 多文件上传核心
-        function addFilesToQueue(files) {
-            if (!files.length) return;
-            for (let f of files) pendingFiles.push(f);
-            processQueue();
-        }
+        // // 多文件上传核心
+        // function addFilesToQueue(files) {
+        //     if (!files.length) return;
+        //     for (let f of files) pendingFiles.push(f);
+        //     processQueue();
+        // }
 
-        async function processQueue() {
-            // 清空上一批次的 Promise 记录
-            currentUploadPromises = [];
+        // async function processQueue() {
+        //     // 清空上一批次的 Promise 记录
+        //     currentUploadPromises = [];
 
-            // 启动所有上传任务（受并发控制）
-            while (pendingFiles.length > 0) {
-                const file = pendingFiles.shift();
-                const uploadPromise = uploadFile(file);
-                currentUploadPromises.push(uploadPromise);
-            }
+        //     // 启动所有上传任务（受并发控制）
+        //     while (pendingFiles.length > 0) {
+        //         const file = pendingFiles.shift();
+        //         const uploadPromise = uploadFile(file);
+        //         currentUploadPromises.push(uploadPromise);
+        //     }
 
-            // 等待所有上传任务完成
-            if (currentUploadPromises.length > 0) {
-                await Promise.allSettled(currentUploadPromises);
-                // 所有文件上传完成后，统一刷新一次文件列表
-                fetchDirectory();
-                showToast(`批量上传完成，共 ${currentUploadPromises.length} 个文件`, false);
-            }
-        }
+        //     // 等待所有上传任务完成
+        //     if (currentUploadPromises.length > 0) {
+        //         await Promise.allSettled(currentUploadPromises);
+        //         // 所有文件上传完成后，统一刷新一次文件列表
+        //         fetchDirectory();
+        //         showToast(`批量上传完成，共 ${currentUploadPromises.length} 个文件`, false);
+        //     }
+        // }
 
-        async function uploadFile(file) {
-            if (/[\\/:*?"<>|]/.test(file.name)) {
-                showToast('名称包含非法字符', true);
-                return;
-            }
+        // async function uploadFile(file) {
+        //     // 创建唯一 ID
+        //     const progressId = 'upload_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
 
-            // 创建唯一 ID
-            const progressId = 'upload_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
+        //     // 创建进度条 DOM 元素
+        //     const wrapperDiv = document.createElement('div');
+        //     wrapperDiv.id = progressId;
+        //     wrapperDiv.style.cssText = 'margin: 8px 20px 0 20px;';
 
-            // 创建进度条 DOM 元素
-            const wrapperDiv = document.createElement('div');
-            wrapperDiv.id = progressId;
-            wrapperDiv.style.cssText = 'margin: 8px 20px 0 20px;';
+        //     const infoDiv = document.createElement('div');
+        //     infoDiv.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f8fafc; border-radius: 12px; font-size: 0.85rem;';
+        //     infoDiv.innerHTML = `
+        //         <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 ${escapeHtml(file.name)}</span>
+        //         <span class="progress-percent" style="width:50px; text-align:right; font-weight:600; color:#3b82f6;">0%</span>
+        //     `;
 
-            const infoDiv = document.createElement('div');
-            infoDiv.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f8fafc; border-radius: 12px; font-size: 0.85rem;';
-            infoDiv.innerHTML = `
-                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 ${escapeHtml(file.name)}</span>
-                <span class="progress-percent" style="width:50px; text-align:right; font-weight:600; color:#3b82f6;">0%</span>
-            `;
+        //     const barWrapper = document.createElement('div');
+        //     barWrapper.style.cssText = 'margin-top: 4px; background: #e2e8f0; border-radius: 10px; overflow: hidden;';
+        //     const barDiv = document.createElement('div');
+        //     barDiv.className = 'progress-bar-inner';
+        //     barDiv.style.cssText = 'width:0%; height:4px; background:#3b82f6; transition:width 0.2s;';
+        //     barWrapper.appendChild(barDiv);
 
-            const barWrapper = document.createElement('div');
-            barWrapper.style.cssText = 'margin-top: 4px; background: #e2e8f0; border-radius: 10px; overflow: hidden;';
-            const barDiv = document.createElement('div');
-            barDiv.className = 'progress-bar-inner';
-            barDiv.style.cssText = 'width:0%; height:4px; background:#3b82f6; transition:width 0.2s;';
-            barWrapper.appendChild(barDiv);
+        //     wrapperDiv.appendChild(infoDiv);
+        //     wrapperDiv.appendChild(barWrapper);
 
-            wrapperDiv.appendChild(infoDiv);
-            wrapperDiv.appendChild(barWrapper);
+        //     const uploadZoneEl = document.getElementById('uploadZone');
+        //     uploadZoneEl.parentNode.insertBefore(wrapperDiv, uploadZoneEl);
 
-            const uploadZoneEl = document.getElementById('uploadZone');
-            uploadZoneEl.parentNode.insertBefore(wrapperDiv, uploadZoneEl);
+        //     const percentSpan = infoDiv.querySelector('.progress-percent');
 
-            const percentSpan = infoDiv.querySelector('.progress-percent');
+        //     const formData = new FormData();
+        //     formData.append('file', file);
 
-            const formData = new FormData();
-            formData.append('file', file);
+        //     return new Promise((resolve) => {
+        //         const xhr = new XMLHttpRequest();
 
-            return new Promise((resolve) => {
-                const xhr = new XMLHttpRequest();
+        //         let isCompleted = false; // 防止重复 resolve
 
-                let isCompleted = false; // 防止重复 resolve
+        //         const cleanup = () => {
+        //             setTimeout(() => {
+        //                 if (wrapperDiv && wrapperDiv.parentNode) {
+        //                     wrapperDiv.remove();
+        //                 }
+        //             }, 2500);
+        //         };
 
-                const cleanup = () => {
-                    setTimeout(() => {
-                        if (wrapperDiv && wrapperDiv.parentNode) {
-                            wrapperDiv.remove();
-                        }
-                    }, 2500);
-                };
+        //         xhr.upload.onprogress = (e) => {
+        //             if (e.lengthComputable && !isCompleted) {
+        //                 const percent = Math.round((e.loaded / e.total) * 100);
+        //                 if (percentSpan) percentSpan.textContent = `${percent}%`;
+        //                 barDiv.style.width = `${percent}%`;
+        //             }
+        //         };
 
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable && !isCompleted) {
-                        const percent = Math.round((e.loaded / e.total) * 100);
-                        if (percentSpan) percentSpan.textContent = `${percent}%`;
-                        barDiv.style.width = `${percent}%`;
-                    }
-                };
+        //         xhr.onload = () => {
+        //             if (isCompleted) return;
+        //             isCompleted = true;
 
-                xhr.onload = () => {
-                    if (isCompleted) return;
-                    isCompleted = true;
+        //             if (xhr.status >= 200 && xhr.status < 300) {
+        //                 try {
+        //                     const res = JSON.parse(xhr.responseText);
+        //                     if (res.success) {
+        //                         percentSpan.style.color = '#10b981';
+        //                         percentSpan.textContent = '✓ 完成';
+        //                     } else {
+        //                         throw new Error(res.error);
+        //                     }
+        //                 } catch (e) {
+        //                     percentSpan.style.color = '#ef4444';
+        //                     percentSpan.textContent = '失败';
+        //                     showToast(`${file.name} 失败: ${e.message}`, true);
+        //                 }
+        //             } else {
+        //                 const res = JSON.parse(xhr.responseText);
+        //                 percentSpan.style.color = '#ef4444';
+        //                 percentSpan.textContent = '失败';
+        //                 showToast(`${file.name} 上传失败: ${res.error}`, true);
+        //             }
+        //             cleanup();
+        //             resolve();
+        //         };
 
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            const res = JSON.parse(xhr.responseText);
-                            if (res.success) {
-                                percentSpan.style.color = '#10b981';
-                                percentSpan.textContent = '✓ 完成';
-                            } else {
-                                throw new Error(res.error);
-                            }
-                        } catch (e) {
-                            percentSpan.style.color = '#ef4444';
-                            percentSpan.textContent = '失败';
-                            showToast(`${file.name} 失败: ${e.message}`, true);
-                        }
-                    } else {
-                        const res = JSON.parse(xhr.responseText);
-                        percentSpan.style.color = '#ef4444';
-                        percentSpan.textContent = '失败';
-                        showToast(`${file.name} 上传失败: ${res.error}`, true);
-                    }
-                    cleanup();
-                    resolve();
-                };
+        //         xhr.onerror = () => {
+        //             if (isCompleted) return;
+        //             isCompleted = true;
+        //             percentSpan.style.color = '#ef4444';
+        //             percentSpan.textContent = '网络错误';
+        //             showToast(`${file.name} 网络错误`, true);
+        //             cleanup();
+        //             resolve();
+        //         };
 
-                xhr.onerror = () => {
-                    if (isCompleted) return;
-                    isCompleted = true;
-                    percentSpan.style.color = '#ef4444';
-                    percentSpan.textContent = '网络错误';
-                    showToast(`${file.name} 网络错误`, true);
-                    cleanup();
-                    resolve();
-                };
-
-                xhr.open('POST', buildUploadUrl());
-                xhr.send(formData);
-            });
-        }
-
-        function escapeHtml(str) {
-            if (!str) return '';
-            return str.replace(/[&<>]/g, function (m) {
-                if (m === '&') return '&amp;';
-                if (m === '<') return '&lt;';
-                if (m === '>') return '&gt;';
-                return m;
-            });
-        }
+        //         xhr.open('POST', buildUploadUrl());
+        //         xhr.send(formData);
+        //     });
+        // }
 
         // 拖拽 / 点击上传
         function setupUpload() {
@@ -827,31 +1081,14 @@
             });
         }
 
-        // 显示高考倒计时弹窗
-        function showGaokaoCountdownToast() {
-            const target = new Date(2027, 5, 7, 9, 0, 0);
-            const now = new Date();
-            const diff = target - now;
-            if (diff <= 0) return;
-            const d = Math.floor(diff / 86400000);
-            const h = Math.floor((diff % 86400000) / 3600000);
-            const m = Math.floor((diff % 3600000) / 60000);
-            const s = Math.floor((diff % 60000) / 1000);
-            // alert(`距离高考仅剩${d}天${h}小时${m}分钟${s}秒\n快高考了，请同学们合理安排学习和娱乐时间，好好备考。`);
-            showToast(`距离高考仅剩${d}天${h}小时${m}分钟${s}秒`);
-        }
-
         // 初始化
         async function init() {
             setupUpload();
             // 新闻页面，设置初始目录
-            if (window.location.pathname === '/news') {
-                currentPath = "新闻";
+            if (window.location.pathname === news_page_pathname) {
+                currentPath = '新闻';
             }
-            // 非新闻页面，显示高考倒计时提示
-            else {
-                showGaokaoCountdownToast();
-            }
+            showGaokaoCountdownToast();
             await fetchDirectory();
             newFolderBtn.addEventListener('click', createNewFolder);
         }

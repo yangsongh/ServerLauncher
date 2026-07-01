@@ -5,6 +5,7 @@ import json
 import shutil
 import logging
 import asyncio
+import tempfile
 import waitress
 import threading
 import websockets
@@ -185,15 +186,15 @@ class ServerManager:
 
     async def start_websocket_server(self):
         """启动WebSocket服务器"""
+        port = config_manager.cfgs.get('websocket_port', 8889)
         async with websockets.serve(
             self.handle_websocket,
             '0.0.0.0',
-            config_manager.cfgs.get('websocket_port', 8889),
+            port,
             ping_interval=30,
             ping_timeout=10
         ):
-            logger.info(
-                f"WebSocket服务器已启动在端口: {config_manager.cfgs.get('websocket_port', 8889)}")
+            logger.info(f"WebSocket服务器已启动在端口: {port}")
             await asyncio.Future()  # 永久运行
 
     def run_websocket_server(self):
@@ -226,7 +227,10 @@ class ServerManager:
             return None
 
         except Exception as e:
-            logger.error(f"读取CPU时间数据失败: {e}")
+            is_64bits = sys.maxsize > 2**32
+            # 电视盒子下才报错
+            if not is_64bits:
+                logger.error(f"读取CPU时间数据失败: {e}")
             return None
 
     def calculate_cpu_percentage(self, prev_times, current_times):
@@ -369,7 +373,7 @@ class ServerManager:
 
             # 配置FTP日志输出
             pyftpdlib.log.config_logging(
-                level=logging.ERROR, prefix='[%(levelname)1.1s %(filename)s:%(lineno)d]')
+                level=logging.INFO, prefix='[%(levelname)1.1s %(filename)s:%(lineno)d]')
             logging.getLogger('pyftpdlib').propagate = False
 
             # 创建FTP服务器并运行
@@ -419,12 +423,12 @@ class ServerManager:
 
                 # 检查是否需要输出系统信息
                 current_time = time.time()
-                system_monitor_freq = float(config_manager.cfgs.get(
-                    'system_monitor_freq', 60))
+                system_monitor_freq = float(
+                    config_manager.cfgs.get('system_monitor_freq', 60))
                 if current_time - last_output_time >= system_monitor_freq:
                     # 更新上次输出时间
                     last_output_time = current_time
-
+                    # 输出系统信息
                     self.execute_command('status')
 
             except Exception as e:
@@ -433,6 +437,13 @@ class ServerManager:
     def run_web_server(self):
         """运行网页服务器 (文件浏览器+网页控制台+LocalProxy服务器)"""
         try:
+            # 切换临时目录
+            tmp_dir = os.path.abspath(
+                config_manager.cfgs.get('tmp_dir', '/tmp')
+            )
+            os.makedirs(tmp_dir, exist_ok=True)
+            tempfile.tempdir = tmp_dir
+
             self.flask_app = Flask(__name__)
             max_upload_size = self.flask_app.config['MAX_CONTENT_LENGTH'] = config_manager.cfgs.get(
                 'max_upload_size', 10 * 1024 * 1024 * 1024
@@ -445,17 +456,13 @@ class ServerManager:
                 console_format_str='\033[32m[%(asctime)s]\033[0m %(funcName)s-%(lineno)d %(log_color)s[文件浏览器] %(message)s'
             )
             file_explorer.NEWS_DIR_BASENAME = config_manager.cfgs.get(
-                'news_dir_basename', '新闻'
-            )
+                'news_dir_basename', '新闻')
             file_explorer.ALLOWED_IPS = config_manager.cfgs.get(
-                'file_explorer_allowed_ips', []
-            )
+                'file_explorer_allowed_ips', [])
             file_explorer.ALLOWED_WEEKDAYS = config_manager.cfgs.get(
-                'file_explorer_allowed_weekdays', []
-            )
+                'file_explorer_allowed_weekdays', [])
             file_explorer.UPLOAD_FILE_MIN_FREE_SPACE = config_manager.cfgs.get(
-                'upload_file_min_free_space', 0
-            )
+                'upload_file_min_free_space', 0)
             file_explorer.MAX_UPLOAD_SIZE = max_upload_size
 
             # 网页控制台
@@ -477,6 +484,8 @@ class ServerManager:
                 web_callback=self.add_output_to_web_console,
                 console_format_str='\033[32m[%(asctime)s]\033[0m %(funcName)s-%(lineno)d %(log_color)s[LocalProxy] %(message)s'
             )
+            localproxy_server.VERSION_CODE = config_manager.cfgs.get(
+                'localproxy_vercode', 0)
             localproxy_server.LOCALPROXY_USERNAME = config_manager.cfgs.get(
                 'localproxy_username', 'user')
             localproxy_server.LOCALPROXY_PASSWORD = config_manager.cfgs.get(
@@ -487,18 +496,18 @@ class ServerManager:
             self.flask_app.register_blueprint(web_console.web_console)
             self.flask_app.register_blueprint(
                 localproxy_server.localproxy_server)
-            
+
             # 初始化配置并启动
             self.flask_app.config['BASE_DIRECTORY'] = config_manager.cfgs.get(
-                'file_explorer_base_dir', '/'
-            )
+                'file_explorer_base_dir', '/')
             self.flask_app.config['MAX_CONTENT_LENGTH'] = max_upload_size
             waitress.serve(
                 self.flask_app, host='0.0.0.0',
                 port=config_manager.cfgs.get('web_server_port', 8888),
                 threads=config_manager.cfgs.get('web_server_threads', 5),
                 max_request_body_size=max_upload_size,
-                connection_limit=500,  # 连接限制
+                connection_limit=config_manager.cfgs.get(
+                    'connection_limit', 1000),
             )
 
         except Exception as e:
@@ -697,11 +706,15 @@ class ServerManager:
         # status: 显示服务器运行状态
         if command == 'status':
             # 获取CPU信息
-            output = f"""\n系统资源使用情况:\n    {self.get_cpu_usage_str()}"""
+            output = f"""系统资源使用情况:  CPU使用率: {self.cpu_usage:.2f}%; """
             # 获取内存信息
-            output += self.get_memory_info_str()
+            mem_info = self.get_memory_usage()
+            if mem_info:
+                output += f"空闲内存: {mem_info['free']} MB; "
             # 获取存储空间信息
-            output += self.get_disk_info_str()
+            disk_info = self.get_disk_usage()
+            if disk_info:
+                output += f"储存空间剩余: {disk_info['free']} GB"
             # 最终输出
             logger.info(output)
 

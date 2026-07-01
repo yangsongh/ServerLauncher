@@ -1,127 +1,276 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="utf-8">
     <title>服务器网页控制台</title>
     <style>
-        body { font-family: sans-serif, "Microsoft YaHei", monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }
-        #output { background: #252525; border: 1px solid #3c3c3c; padding: 10px; height: 70vh; overflow-y: auto; white-space: pre-wrap; }
-        .output-line { margin: 2px 0; white-space: pre-wrap; word-break: break-all; }
-        .command-input { width: 100%; padding: 10px; margin-top: 10px; background: #252525; color: #d4d4d4; border: 1px solid #3c3c3c; }
-        .status-bar { margin-top: 10px; color: #888; font-size: 12px; }
-        
-        /* 基础ANSI颜色样式类 */
-        .ansi-black-fg { color: #2e2e2e; }
-        .ansi-red-fg { color: #cd5c5c; }
-        .ansi-green-fg { color: #6a9955; }
-        .ansi-yellow-fg { color: #d7ba7d; }
-        .ansi-blue-fg { color: #569cd6; }
-        .ansi-magenta-fg { color: #c586c0; }
-        .ansi-cyan-fg { color: #9cdcfe; }
-        .ansi-white-fg { color: #d4d4d4; }
-        
-        /* 亮色前景 */
-        .ansi-bright-black-fg { color: #808080; }
-        .ansi-bright-red-fg { color: #f44747; }
-        .ansi-bright-green-fg { color: #6a9955; }
-        .ansi-bright-yellow-fg { color: #d7ba7d; }
-        .ansi-bright-blue-fg { color: #569cd6; }
-        .ansi-bright-magenta-fg { color: #c586c0; }
-        .ansi-bright-cyan-fg { color: #9cdcfe; }
-        .ansi-bright-white-fg { color: #ffffff; }
-        
-        /* 背景色 */
-        .ansi-black-bg { background-color: #2e2e2e; }
-        .ansi-red-bg { background-color: #5c3a3a; }
-        .ansi-green-bg { background-color: #2d4c2d; }
-        .ansi-yellow-bg { background-color: #5c5028; }
-        .ansi-blue-bg { background-color: #2a3b5c; }
-        .ansi-magenta-bg { background-color: #4a2e4a; }
-        .ansi-cyan-bg { background-color: #2a4b5c; }
-        .ansi-white-bg { background-color: #4a4a4a; }
-        
-        /* 样式修饰 */
-        .ansi-bold { font-weight: bold; }
-        .ansi-italic { font-style: italic; }
-        .ansi-underline { text-decoration: underline; }
-        
-        /* 重置样式 */
-        .ansi-reset { all: unset; display: inline; }
-        
-        /* 连接状态指示器 */
-        .connected { color: #6a9955; }
-        .disconnected { color: #cd5c5c; }
-        .connecting { color: #d7ba7d; }
-        
-        /* 滚动控制按钮 */
-        .scroll-controls {
-            position: fixed;
-            bottom: 80px;
-            right: 20px;
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: sans-serif, "Microsoft YaHei", monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            margin: 0;
+            padding: 20px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        h2 {
+            margin-top: 0;
+            margin-bottom: 16px;
+            font-weight: normal;
+        }
+
+        #output {
+            background: #252525;
+            border: 1px solid #3c3c3c;
+            padding: 10px;
+            flex: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .output-line {
+            margin: 2px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* 输入栏容器：输入框 + 按钮同行布局 */
+        .input-bar-wrap {
             display: flex;
             gap: 10px;
-            z-index: 1000;
+            align-items: center;
         }
+
+        .command-input {
+            flex: 1;
+            padding: 10px;
+            background: #252525;
+            color: #d4d4d4;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        .command-input:focus {
+            border-color: #569cd6;
+        }
+
+        .scroll-controls {
+            display: flex;
+            gap: 8px;
+        }
+
         .scroll-btn {
             background: #3c3c3c;
             border: 1px solid #555;
             color: #d4d4d4;
-            padding: 8px 12px;
+            padding: 9px 14px;
             cursor: pointer;
             border-radius: 4px;
             font-size: 12px;
+            white-space: nowrap;
         }
+
         .scroll-btn:hover {
             background: #4c4c4c;
         }
+
+        .status-bar {
+            margin-top: 12px;
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* 基础ANSI颜色样式类 */
+        .ansi-black-fg {
+            color: #2e2e2e;
+        }
+
+        .ansi-red-fg {
+            color: #cd5c5c;
+        }
+
+        .ansi-green-fg {
+            color: #6a9955;
+        }
+
+        .ansi-yellow-fg {
+            color: #d7ba7d;
+        }
+
+        .ansi-blue-fg {
+            color: #569cd6;
+        }
+
+        .ansi-magenta-fg {
+            color: #c586c0;
+        }
+
+        .ansi-cyan-fg {
+            color: #9cdcfe;
+        }
+
+        .ansi-white-fg {
+            color: #d4d4d4;
+        }
+
+        /* 亮色前景 */
+        .ansi-bright-black-fg {
+            color: #808080;
+        }
+
+        .ansi-bright-red-fg {
+            color: #f44747;
+        }
+
+        .ansi-bright-green-fg {
+            color: #6a9955;
+        }
+
+        .ansi-bright-yellow-fg {
+            color: #d7ba7d;
+        }
+
+        .ansi-bright-blue-fg {
+            color: #569cd6;
+        }
+
+        .ansi-bright-magenta-fg {
+            color: #c586c0;
+        }
+
+        .ansi-bright-cyan-fg {
+            color: #9cdcfe;
+        }
+
+        .ansi-bright-white-fg {
+            color: #ffffff;
+        }
+
+        /* 背景色 */
+        .ansi-black-bg {
+            background-color: #2e2e2e;
+        }
+
+        .ansi-red-bg {
+            background-color: #5c3a3a;
+        }
+
+        .ansi-green-bg {
+            background-color: #2d4c2d;
+        }
+
+        .ansi-yellow-bg {
+            background-color: #5c5028;
+        }
+
+        .ansi-blue-bg {
+            background-color: #2a3b5c;
+        }
+
+        .ansi-magenta-bg {
+            background-color: #4a2e4a;
+        }
+
+        .ansi-cyan-bg {
+            background-color: #2a4b5c;
+        }
+
+        .ansi-white-bg {
+            background-color: #4a4a4a;
+        }
+
+        /* 样式修饰 */
+        .ansi-bold {
+            font-weight: bold;
+        }
+
+        .ansi-italic {
+            font-style: italic;
+        }
+
+        .ansi-underline {
+            text-decoration: underline;
+        }
+
+        /* 重置样式 */
+        .ansi-reset {
+            all: unset;
+            display: inline;
+        }
+
+        /* 连接状态指示器 */
+        .connected {
+            color: #6a9955;
+        }
+
+        .disconnected {
+            color: #cd5c5c;
+        }
+
+        .connecting {
+            color: #d7ba7d;
+        }
     </style>
 </head>
+
 <body>
     <h2>服务器网页控制台</h2>
     <div id="output"></div>
-    <input type="text" id="commandInput" class="command-input" placeholder="输入命令 (help 查看帮助)" autocomplete="off">
-    <div class="status-bar">
-        <span id="status">连接中...</span> | 
-        <span id="lineCount">0 行</span> |
-        <span id="lastUpdate">-</span>
-    </div>
-    
-    <div class="scroll-controls">
-        <button id="scrollToBottomBtn" class="scroll-btn">⬇ 滚动到底部</button>
-        <button id="toggleAutoScrollBtn" class="scroll-btn">🔘 自动滚动: 开启</button>
+
+    <!-- 输入框与按钮同行容器 -->
+    <div class="input-bar-wrap">
+        <input type="text" id="commandInput" class="command-input" placeholder="输入命令 (help 查看帮助)" autocomplete="off">
+        <div class="scroll-controls">
+            <button id="scrollToBottomBtn" class="scroll-btn">滚动到底部</button>
+            <button id="toggleAutoScrollBtn" class="scroll-btn">自动滚动: 开启</button>
+        </div>
     </div>
 
-        <script>
+    <div class="status-bar">
+        <span id="status"><span class="connecting">连接中...</span></span> |
+        <span id="lineCount">0 行</span>
+    </div>
+
+    <script>
         let ws = null;
-        let wsConnected = false;
         let currentLineCount = 0;
         let autoScroll = true;  // 是否自动滚动到底部
-        
-        // 命令历史记录（最多50条）
+
+        // 命令历史记录
         let commandHistory = [];
         let historyIndex = -1;  // -1表示当前输入，0~n-1表示历史记录中的位置
         let currentInputBuffer = '';  // 保存当前未提交的输入内容
-        
+
         const outputDiv = document.getElementById('output');
         const commandInput = document.getElementById('commandInput');
         const statusSpan = document.getElementById('status');
         const lineCountSpan = document.getElementById('lineCount');
-        const lastUpdateSpan = document.getElementById('lastUpdate');
         const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
         const toggleAutoScrollBtn = document.getElementById('toggleAutoScrollBtn');
-        
+
         // 将ANSI转义码转换为HTML标签样式
         function ansiToHtml(text) {
             if (!text || typeof text !== 'string') return text;
-            
+
             let currentStyles = {
                 fg: null, bg: null, bold: false, italic: false, underline: false
             };
-            
+
             const ansiRegex = /\x1b\[([0-9;]*)m|\u001b\[([0-9;]*)m|\u001B\[([0-9;]*)m/g;
             let lastIndex = 0;
             let match;
-            
+
             function getCurrentStyleClasses() {
                 const classes = [];
                 if (currentStyles.fg) classes.push(`ansi-${currentStyles.fg}-fg`);
@@ -131,7 +280,7 @@
                 if (currentStyles.underline) classes.push('ansi-underline');
                 return classes.join(' ');
             }
-            
+
             function wrapWithStyles(textChunk) {
                 if (!textChunk) return '';
                 const classes = getCurrentStyleClasses();
@@ -140,7 +289,7 @@
                 }
                 return escapeHtml(textChunk);
             }
-            
+
             function processAnsiCodes(codesStr) {
                 if (!codesStr) return;
                 const codes = codesStr.split(';').map(c => parseInt(c, 10));
@@ -156,30 +305,38 @@
                     else if (code === 23) { currentStyles.italic = false; }
                     else if (code === 24) { currentStyles.underline = false; }
                     else if (code >= 30 && code <= 37) {
-                        const fgMap = {30: 'black', 31: 'red', 32: 'green', 33: 'yellow',
-                                      34: 'blue', 35: 'magenta', 36: 'cyan', 37: 'white'};
+                        const fgMap = {
+                            30: 'black', 31: 'red', 32: 'green', 33: 'yellow',
+                            34: 'blue', 35: 'magenta', 36: 'cyan', 37: 'white'
+                        };
                         currentStyles.fg = fgMap[code];
                     } else if (code >= 90 && code <= 97) {
-                        const fgBrightMap = {90: 'bright-black', 91: 'bright-red', 92: 'bright-green', 93: 'bright-yellow',
-                                             94: 'bright-blue', 95: 'bright-magenta', 96: 'bright-cyan', 97: 'bright-white'};
+                        const fgBrightMap = {
+                            90: 'bright-black', 91: 'bright-red', 92: 'bright-green', 93: 'bright-yellow',
+                            94: 'bright-blue', 95: 'bright-magenta', 96: 'bright-cyan', 97: 'bright-white'
+                        };
                         currentStyles.fg = fgBrightMap[code];
                     } else if (code >= 40 && code <= 47) {
-                        const bgMap = {40: 'black', 41: 'red', 42: 'green', 43: 'yellow',
-                                      44: 'blue', 45: 'magenta', 46: 'cyan', 47: 'white'};
+                        const bgMap = {
+                            40: 'black', 41: 'red', 42: 'green', 43: 'yellow',
+                            44: 'blue', 45: 'magenta', 46: 'cyan', 47: 'white'
+                        };
                         currentStyles.bg = bgMap[code];
                     } else if (code >= 100 && code <= 107) {
-                        const bgBrightMap = {100: 'black', 101: 'red', 102: 'green', 103: 'yellow',
-                                             104: 'blue', 105: 'magenta', 106: 'cyan', 107: 'white'};
+                        const bgBrightMap = {
+                            100: 'black', 101: 'red', 102: 'green', 103: 'yellow',
+                            104: 'blue', 105: 'magenta', 106: 'cyan', 107: 'white'
+                        };
                         currentStyles.bg = bgBrightMap[code];
                     } else if (code === 39) { currentStyles.fg = null; }
                     else if (code === 49) { currentStyles.bg = null; }
                     i++;
                 }
             }
-            
+
             let processedText = '';
             ansiRegex.lastIndex = 0;
-            
+
             while ((match = ansiRegex.exec(text)) !== null) {
                 const beforeText = text.substring(lastIndex, match.index);
                 if (beforeText) {
@@ -191,25 +348,25 @@
                 }
                 lastIndex = ansiRegex.lastIndex;
             }
-            
+
             if (lastIndex < text.length) {
                 processedText += wrapWithStyles(text.substring(lastIndex));
             }
-            
+
             if (processedText === '') {
                 return escapeHtml(text);
             }
             return processedText;
         }
-        
+
         function escapeHtml(text) {
-            if (!text) return text;
-            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'};
-            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+            if (!text) return '';
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, m => map[m]);
         }
-        
+
         // 添加输出行
-        function addOutputLine(timestamp, content) {
+        function addOutputLine(content) {
             const line = document.createElement('div');
             line.className = 'output-line';
             const coloredContent = ansiToHtml(content);
@@ -217,75 +374,73 @@
             outputDiv.appendChild(line);
             currentLineCount++;
             lineCountSpan.textContent = currentLineCount + ' 行';
-            lastUpdateSpan.textContent = new Date().toLocaleTimeString();
-            
+
             // 自动滚动到底部
             if (autoScroll) {
                 line.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
         }
-        
+
         // 清空输出区域
         function clearOutput() {
             outputDiv.innerHTML = '';
             currentLineCount = 0;
             lineCountSpan.textContent = '0 行';
         }
-        
-        function updateConnectionStatus(connected, message = '') {
-            wsConnected = connected;
+
+        // 更新连接状态显示
+        function updateConnectionStatus(connected, message) {
             if (connected) {
-                statusSpan.innerHTML = '<span class="connected">● 已连接</span>';
+                statusSpan.innerHTML = '<span class="connected">' + escapeHtml(message) + '</span>';
             } else {
-                statusSpan.innerHTML = '<span class="disconnected">○ 断开连接</span>';
-            }
-            if (message) {
-                statusSpan.title = message;
+                statusSpan.innerHTML = '<span class="disconnected">' + escapeHtml(message) + '</span>';
             }
         }
-        
+
         // 滚动到底部
         function scrollToBottom() {
             outputDiv.scrollTop = outputDiv.scrollHeight;
+            // 手动点击滚到底部，同步开启自动滚动
+            autoScroll = true;
+            toggleAutoScrollBtn.textContent = '自动滚动: 开启';
         }
-        
+
         // 切换自动滚动
         function toggleAutoScroll() {
             autoScroll = !autoScroll;
             if (autoScroll) {
-                toggleAutoScrollBtn.textContent = '🔘 自动滚动: 开启';
-                scrollToBottom();
+                toggleAutoScrollBtn.textContent = '自动滚动: 开启';
             } else {
-                toggleAutoScrollBtn.textContent = '🔘 自动滚动: 关闭';
+                toggleAutoScrollBtn.textContent = '自动滚动: 关闭';
             }
         }
-        
+
         // 保存命令到历史记录（最多50条）
         function saveToHistory(command) {
             if (!command || command.trim() === '') return;
-            
+
             // 避免重复保存相同的上一条命令
             if (commandHistory.length > 0 && commandHistory[commandHistory.length - 1] === command) {
                 return;
             }
-            
+
             commandHistory.push(command);
-            
+
             // 限制最多50条
             if (commandHistory.length > 50) {
                 commandHistory.shift();
             }
         }
-        
+
         // 导航到上一条命令（按↑键）
         function navigateUp() {
             if (commandHistory.length === 0) return;
-            
+
             // 如果当前在输入状态且还未开始导航，保存当前输入内容
             if (historyIndex === -1) {
                 currentInputBuffer = commandInput.value;
             }
-            
+
             // 移动到上一条（更早的命令）
             if (historyIndex < commandHistory.length - 1) {
                 historyIndex++;
@@ -295,11 +450,11 @@
                 return;
             }
         }
-        
+
         // 导航到下一条命令（按↓键）
         function navigateDown() {
             if (commandHistory.length === 0) return;
-            
+
             if (historyIndex > 0) {
                 // 移动到下一条（更新的命令）
                 historyIndex--;
@@ -312,51 +467,47 @@
                 currentInputBuffer = '';
             }
         }
-        
-        // 重置历史导航状态（在用户手动编辑或提交命令后调用）
+
+        // 重置历史导航状态
         function resetHistoryState() {
             historyIndex = -1;
             currentInputBuffer = '';
         }
-        
-        // 建立WebSocket连接（无认证）
+
+        // 建立WebSocket连接
         async function connectWebSocket() {
             try {
                 const configResponse = await fetch('/console/get_websocket_config');
-                
                 if (!configResponse.ok) {
                     throw new Error('无法获取WebSocket配置');
                 }
-                
+
                 const config = await configResponse.json();
                 const wsUrl = config.ws_url;
-                
-                updateConnectionStatus(false, '连接中...');
-                statusSpan.innerHTML = '<span class="connecting">● 连接中...</span>';
-                
+
                 ws = new WebSocket(wsUrl);
-                
-                ws.onopen = function() {
+
+                ws.onopen = function () {
                     console.log('WebSocket连接已建立');
                     updateConnectionStatus(true, '已连接');
                 };
-                
-                ws.onmessage = function(event) {
+
+                ws.onmessage = function (event) {
                     try {
                         const message = JSON.parse(event.data);
-                        
+
                         if (message.type === 'history') {
                             // 加载历史记录
                             clearOutput();
                             const historyData = message.data;
                             for (const entry of historyData) {
-                                addOutputLine(entry.timestamp, entry.content);
+                                addOutputLine(entry.content);
                             }
                             console.log(`已加载 ${historyData.length} 条历史记录`);
                             scrollToBottom();
                         } else if (message.type === 'output') {
                             // 实时输出
-                            addOutputLine(message.data.timestamp, message.data.content);
+                            addOutputLine(message.data.content);
                         } else if (message.type === 'command_ack') {
                             console.log(`命令已发送: ${message.command}`);
                         }
@@ -364,26 +515,26 @@
                         console.error('解析消息失败:', e);
                     }
                 };
-                
-                ws.onerror = function(error) {
+
+                ws.onerror = function (error) {
                     console.error('WebSocket错误:', error);
                     updateConnectionStatus(false, '连接错误');
+                    setTimeout(connectWebSocket, 3000); // 3秒后重连
                 };
-                
-                ws.onclose = function(event) {
+
+                ws.onclose = function (event) {
                     console.log('WebSocket连接已关闭', event.code, event.reason);
                     updateConnectionStatus(false, '连接已关闭');
-                    // 3秒后重连
-                    setTimeout(connectWebSocket, 3000);
+                    setTimeout(connectWebSocket, 3000); // 3秒后重连
                 };
-                
+
             } catch (error) {
                 console.error('建立WebSocket连接失败:', error);
                 updateConnectionStatus(false, '连接失败');
-                setTimeout(connectWebSocket, 3000);
+                setTimeout(connectWebSocket, 3000); // 3秒后重连
             }
         }
-        
+
         // 发送命令
         function sendCommand(command) {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -392,16 +543,32 @@
                     command: command
                 }));
             } else {
-                addOutputLine(new Date().toLocaleTimeString(), '[系统] WebSocket未连接，无法发送命令');
+                addOutputLine('[系统] WebSocket未连接，无法发送命令');
             }
         }
-        
+
         // 按钮事件
         scrollToBottomBtn.addEventListener('click', scrollToBottom);
         toggleAutoScrollBtn.addEventListener('click', toggleAutoScroll);
-        
+
+        // 监听输出框手动滚动行为
+        outputDiv.addEventListener('scroll', function () {
+            const el = outputDiv;
+            // 判断是否已经滚动到底部（容错阈值5px）
+            const isBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 5;
+            if (isBottom) {
+                // 滑到底部，自动开启自动滚动
+                autoScroll = true;
+                toggleAutoScrollBtn.textContent = '自动滚动: 开启';
+            } else {
+                // 手动向上滑动，静默关闭自动滚动
+                autoScroll = false;
+                toggleAutoScrollBtn.textContent = '自动滚动: 关闭';
+            }
+        });
+
         // 输入框事件处理（支持↑/↓历史命令和Enter发送）
-        commandInput.addEventListener('keydown', function(e) {
+        commandInput.addEventListener('keydown', function (e) {
             if (e.key === 'ArrowUp') {
                 e.preventDefault();  // 阻止光标移动到行首
                 navigateUp();
@@ -410,16 +577,16 @@
                 navigateDown();
             }
         });
-        
+
         // 监听用户手动修改输入框，重置历史导航状态
-        commandInput.addEventListener('input', function() {
+        commandInput.addEventListener('input', function () {
             if (historyIndex !== -1) {
                 resetHistoryState();
             }
         });
-        
+
         // 发送命令（Enter键）
-        commandInput.addEventListener('keypress', function(e) {
+        commandInput.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
                 const command = this.value.trim();
                 if (command) {
@@ -437,10 +604,11 @@
                 }
             }
         });
-        
+
         // 启动连接
         connectWebSocket();
         commandInput.focus();
     </script>
 </body>
+
 </html>
